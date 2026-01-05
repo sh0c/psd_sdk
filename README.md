@@ -1,3 +1,8 @@
+THIS FORK ADD:
+ * PSB SUPPORT;
+ * SMART OBJECT SUPPORT;
+ * OPEN FROM MEMORY SUPPORT.
+
 # psd_sdk
 A C++ library that directly reads Photoshop PSD files. The library supports:
 * Groups

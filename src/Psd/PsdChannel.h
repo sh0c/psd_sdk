@@ -13,7 +13,7 @@ PSD_NAMESPACE_BEGIN
 struct Channel
 {
 	uint64_t fileOffset;				///< The offset from the start of the file where the channel's data is stored.
-	uint32_t size;						///< The size of the channel data to be read from the file.
+	uint64_t size;						///< The size of the channel data to be read from the file.
 	void* data;							///< Planar data the size of the layer the channel belongs to. Data is only valid if the type member indicates so.
 	int16_t type;						///< One of the \ref channelType constants denoting the type of data.
 };

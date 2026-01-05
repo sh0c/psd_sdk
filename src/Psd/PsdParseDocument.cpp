@@ -17,12 +17,31 @@
 
 PSD_NAMESPACE_BEGIN
 
+namespace
+{
+// ---------------------------------------------------------------------------------------------------------------------
+// ---------------------------------------------------------------------------------------------------------------------
+static uint64_t NormalizeSectionLength(uint64_t value, uint64_t available)
+{
+	if (value <= available)
+		return value;
+
+	const uint64_t upper = value >> 32u;
+	const uint64_t lower = value & 0xFFFFFFFFull;
+	if ((lower == 0ull) && (upper != 0ull) && (upper <= available))
+		return upper;
+
+	return available;
+}
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // ---------------------------------------------------------------------------------------------------------------------
 Document* CreateDocument(File* file, Allocator* allocator)
 {
 	SyncFileReader reader(file);
 	reader.SetPosition(0u);
+	const uint64_t fileSize = file->GetSize();
 
 	// check signature, must be "8BPS"
 	{
@@ -34,14 +53,12 @@ Document* CreateDocument(File* file, Allocator* allocator)
 		}
 	}
 
-	// check version, must be 1
+	// check version, PSD uses 1 while PSB (large format) uses 2
+	const uint16_t version = fileUtil::ReadFromFileBE<uint16_t>(reader);
+	if ((version != 1u) && (version != 2u))
 	{
-		const uint16_t version = fileUtil::ReadFromFileBE<uint16_t>(reader);
-		if (version != 1)
-		{
-			PSD_ERROR("PsdExtract", "File seems to be corrupt, version does not match 1.");
-			return nullptr;
-		}
+		PSD_ERROR("PsdExtract", "File seems to be corrupt, version does not match 1 or 2.");
+		return nullptr;
 	}
 
 	// check reserved bytes, must be zero
@@ -58,6 +75,7 @@ Document* CreateDocument(File* file, Allocator* allocator)
 	}
 
 	Document* document = memoryUtil::Allocate<Document>(allocator);
+	document->isLargeDocument = (version == 2u);
 
 	// read in the number of channels.
 	// this is the number of channels contained in the document for all layers, including any alpha channels.
@@ -72,35 +90,60 @@ Document* CreateDocument(File* file, Allocator* allocator)
 	document->bitsPerChannel = fileUtil::ReadFromFileBE<uint16_t>(reader);
 	document->colorMode = fileUtil::ReadFromFileBE<uint16_t>(reader);
 
+	const auto readSection32 = [&](Section& section) -> bool
+	{
+		const uint32_t rawLength = fileUtil::ReadFromFileBE<uint32_t>(reader);
+		const uint64_t offset = reader.GetPosition();
+		const uint64_t available = (offset < fileSize) ? (fileSize - offset) : 0ull;
+		const uint64_t length = NormalizeSectionLength(rawLength, available);
+		section.offset = offset;
+		section.length = length;
+		reader.Skip(length);
+		return true;
+	};
+
+	const auto readSection64 = [&](Section& section) -> bool
+	{
+		const uint64_t rawLength = fileUtil::ReadFromFileBE<uint64_t>(reader);
+		const uint64_t offset = reader.GetPosition();
+		const uint64_t available = (offset < fileSize) ? (fileSize - offset) : 0ull;
+		const uint64_t length = NormalizeSectionLength(rawLength, available);
+		section.offset = offset;
+		section.length = length;
+		reader.Skip(length);
+		return true;
+	};
+
 	// grab offsets into different sections
 	{
-		const uint32_t length = fileUtil::ReadFromFileBE<uint32_t>(reader);
-
-		document->colorModeDataSection.offset = reader.GetPosition();
-		document->colorModeDataSection.length = length;
-
-		reader.Skip(length);
+		if (!readSection32(document->colorModeDataSection))
+		{
+			DestroyDocument(document, allocator);
+			return nullptr;
+		}
 	}
 	{
-		const uint32_t length = fileUtil::ReadFromFileBE<uint32_t>(reader);
-
-		document->imageResourcesSection.offset = reader.GetPosition();
-		document->imageResourcesSection.length = length;
-
-		reader.Skip(length);
+		if (!readSection32(document->imageResourcesSection))
+		{
+			DestroyDocument(document, allocator);
+			return nullptr;
+		}
 	}
 	{
-		const uint32_t length = fileUtil::ReadFromFileBE<uint32_t>(reader);
-
-		document->layerMaskInfoSection.offset = reader.GetPosition();
-		document->layerMaskInfoSection.length = length;
-
-		reader.Skip(length);
+		const bool result = document->isLargeDocument
+			? readSection64(document->layerMaskInfoSection)
+			: readSection32(document->layerMaskInfoSection);
+		if (!result)
+		{
+			DestroyDocument(document, allocator);
+			return nullptr;
+		}
 	}
 	{
 		// note that the image data section does NOT store its length in the first 4 bytes
-		document->imageDataSection.offset = reader.GetPosition();
-		document->imageDataSection.length = static_cast<uint32_t>(file->GetSize() - reader.GetPosition());
+		const uint64_t offset = reader.GetPosition();
+		document->imageDataSection.offset = offset;
+		document->imageDataSection.length = (offset < fileSize) ? (fileSize - offset) : 0ull;
 	}
 
 	return document;

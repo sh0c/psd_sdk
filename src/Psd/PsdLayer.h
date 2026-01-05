@@ -4,6 +4,7 @@
 #pragma once
 
 #include "PsdFixedSizeString.h"
+#include "PsdSmartObject.h"
 
 
 PSD_NAMESPACE_BEGIN
@@ -22,6 +23,7 @@ struct Layer
 {
 	Layer* parent;						///< The layer's parent layer, if any.
 	util::FixedSizeString name;			///< The ASCII name of the layer. Truncated to 31 characters in PSD files.
+	util::FixedSizeString smartObjectId;///< GUID identifying the smart object data block, if any.
 	uint16_t* utf16Name;				///< The UTF16 name of the layer.
 
 	int32_t top;						///< Top coordinate of the rectangle that encloses the layer.
@@ -34,6 +36,7 @@ struct Layer
 
 	LayerMask* layerMask;				///< The layer's user mask, if any.
 	VectorMask* vectorMask;				///< The layer's vector mask, if any.
+	SmartObject* smartObject;			///< The layer's smart object data block, if any.
 
 	uint32_t blendModeKey;				///< The key denoting the layer's blend mode. Can be any key described in \ref blendMode::Enum.
 	uint8_t opacity;					///< The layer's opacity value, with the range [0, 255] mapped to [0%, 100%].

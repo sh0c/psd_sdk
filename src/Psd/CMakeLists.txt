@@ -30,6 +30,8 @@ set(psd_source_interfaces
   PsdAllocator.cpp
   PsdFile.h
   PsdFile.cpp
+  PsdMemoryFile.h
+  PsdMemoryFile.cpp
   PsdMallocAllocator.h
   PsdMallocAllocator.cpp
 )
@@ -92,6 +94,7 @@ set(psd_source_types
   PsdImageResourceType.h
   PsdLayer.h
   PsdLayerMask.h
+  PsdSmartObject.h
   PsdLayerType.h
   PsdPlanarImage.h
   PsdSection.h
@@ -105,6 +108,8 @@ set(psd_source_util
   PsdEndianConversion.inl
   PsdFixedSizeString.h
   PsdFixedSizeString.cpp
+  PsdStringUtil.h
+  PsdStringUtil.cpp
   PsdKey.h
   PsdMemoryUtil.h
   PsdMemoryUtil.inl
@@ -120,7 +125,7 @@ set(psd_source_util
 
 set(psd_source_zip
   Psdminiz.h
-  Psdminiz.c
+  Psdminiz.cpp
 )
 
 set(psd_source_
@@ -148,6 +153,14 @@ set(psd_source
 )
 
 add_library(Psd ${psd_source})
+
+if (WIN32)
+
+elseif (APPLE)
+
+else()
+    target_link_libraries(Psd PRIVATE rt)
+endif()
 
 source_group("Source Files/Exporter" FILES ${psd_source_exporter})
 source_group("Source Files/ImageUtil" FILES ${psd_source_image_util})

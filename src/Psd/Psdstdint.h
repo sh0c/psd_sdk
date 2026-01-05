@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "PsdCompilerMacros.h"
 
 // Pull in standard 8-bit, 16-bit, 32-bit and 64-bit types.
 #if PSD_USE_MSVC && PSD_USE_MSVC_VER <= 2008
@@ -25,7 +26,7 @@
 	#endif
 #else
 	PSD_PUSH_WARNING_LEVEL(0)
-	#include <stdint.h>
+    #include <cstdint>
     #if defined(__APPLE__)
         #include <assert.h>
     #endif

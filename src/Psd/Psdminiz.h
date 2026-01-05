@@ -6,6 +6,6 @@
 
 PSD_PUSH_WARNING_LEVEL(0)
 	#define MINIZ_HEADER_FILE_ONLY
-	#include "Psdminiz.c"
+    #include "Psdminiz.cpp"
 	#undef MINIZ_HEADER_FILE_ONLY
 PSD_POP_WARNING_LEVEL

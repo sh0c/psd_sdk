@@ -12,7 +12,7 @@ PSD_NAMESPACE_BEGIN
 struct Section
 {
 	uint64_t offset;				///< The offset from the start of the file where this section is stored.
-	uint32_t length;				///< The length of the section.
+	uint64_t length;				///< The length of the section.
 };
 
 PSD_NAMESPACE_END

@@ -19,6 +19,7 @@ struct Document
 	unsigned int channelCount;					///< The number of channels stored in the document, including any additional alpha channels.
 	unsigned int bitsPerChannel;				///< The bits per channel (8, 16 or 32).
 	unsigned int colorMode;						///< The color mode the document is stored in, can be any of \ref colorMode::Enum.
+	bool isLargeDocument;						///< True if the document is stored in PSB format (version 2).
 
 	Section colorModeDataSection;				///< Color mode data section.
 	Section imageResourcesSection;				///< Image Resources section.

@@ -26,6 +26,7 @@
 #include "../Psd/PsdImageResourcesSection.h"
 #include "../Psd/PsdParseDocument.h"
 #include "../Psd/PsdParseLayerMaskSection.h"
+#include "../Psd/PsdKey.h"
 #include "../Psd/PsdParseImageDataSection.h"
 #include "../Psd/PsdParseImageResourcesSection.h"
 #include "../Psd/PsdLayerCanvasCopy.h"
@@ -33,9 +34,11 @@
 #include "../Psd/PsdPlanarImage.h"
 #include "../Psd/PsdExport.h"
 #include "../Psd/PsdExportDocument.h"
+#include "../Psd/PsdMemoryFile.h"
 
 #include "PsdTgaExporter.h"
 #include "PsdDebug.h"
+#include <iostream>
 
 PSD_PUSH_WARNING_LEVEL(0)
 	// disable annoying warning caused by xlocale(337): warning C4530: C++ exception handler used, but unwind semantics are not enabled. Specify /EHsc
@@ -115,6 +118,130 @@ namespace
 		}
 
 		return CHANNEL_NOT_FOUND;
+	}
+
+
+	// ---------------------------------------------------------------------------------------------------------------------
+	// ---------------------------------------------------------------------------------------------------------------------
+	static unsigned int GetLayerDepth(const Layer* layer)
+	{
+		unsigned int depth = 0u;
+		for (const Layer* parent = layer ? layer->parent : nullptr; parent; parent = parent->parent)
+		{
+			++depth;
+		}
+
+		return depth;
+	}
+
+
+	// ---------------------------------------------------------------------------------------------------------------------
+	// ---------------------------------------------------------------------------------------------------------------------
+	static std::string GetLayerDisplayName(const Layer* layer)
+	{
+		if (!layer)
+			return "<unnamed>";
+
+		if (layer->name.GetLength() > 0u)
+			return std::string(layer->name.c_str());
+
+		if (layer->utf16Name)
+		{
+			std::string ascii;
+			for (size_t i = 0u; layer->utf16Name[i] != 0u; ++i)
+			{
+				const uint16_t codePoint = layer->utf16Name[i];
+				ascii.push_back((codePoint <= 0x7Fu) ? static_cast<char>(codePoint) : '?');
+			}
+			if (!ascii.empty())
+				return ascii;
+		}
+
+		return "<unnamed>";
+	}
+
+
+	// ---------------------------------------------------------------------------------------------------------------------
+	// ---------------------------------------------------------------------------------------------------------------------
+	static bool IsEmbeddedPsd(const SmartObject* smartObject)
+	{
+		if (!smartObject)
+			return false;
+
+		return (smartObject->fileType == util::Key<'8', 'B', 'P', 'S'>::VALUE) ||
+			(smartObject->fileType == util::Key<'8', 'B', 'P', 'B'>::VALUE);
+	}
+
+
+	// ---------------------------------------------------------------------------------------------------------------------
+	// ---------------------------------------------------------------------------------------------------------------------
+	static std::string FileTypeToString(uint32_t fileType)
+	{
+		char buffer[5] = {};
+		buffer[0] = static_cast<char>((fileType >> 24u) & 0xFFu);
+		buffer[1] = static_cast<char>((fileType >> 16u) & 0xFFu);
+		buffer[2] = static_cast<char>((fileType >> 8u) & 0xFFu);
+		buffer[3] = static_cast<char>(fileType & 0xFFu);
+		buffer[4] = '\0';
+		return std::string(buffer);
+	}
+
+
+	// ---------------------------------------------------------------------------------------------------------------------
+	// ---------------------------------------------------------------------------------------------------------------------
+	static void PrintLayerHierarchy(LayerMaskSection* layerMaskSection, Allocator* allocator, unsigned int baseIndent = 0u)
+	{
+		if (!layerMaskSection || !layerMaskSection->layers)
+			return;
+
+		for (unsigned int i = 0; i < layerMaskSection->layerCount; ++i)
+		{
+			Layer* layer = &layerMaskSection->layers[i];
+			const unsigned int indentLevel = baseIndent + GetLayerDepth(layer);
+			std::string indent(indentLevel * 2u, ' ');
+
+			const std::string name = GetLayerDisplayName(layer);
+			const int32_t width = layer->right - layer->left;
+			const int32_t height = layer->bottom - layer->top;
+			const bool hasSmartObject = layer->smartObject && layer->smartObject->file;
+			const bool canOpenSmartObject = hasSmartObject && IsEmbeddedPsd(layer->smartObject);
+			std::cout << indent << "- " << name
+				<< " [" << layer->left << "," << layer->top << " " << width << "x" << height << "]";
+			if (hasSmartObject)
+			{
+				std::cout << " [Smart Object]";
+			}
+			std::cout << std::endl;
+
+			if (hasSmartObject && !canOpenSmartObject)
+			{
+				std::cout << indent << "  (Embedded file type " << FileTypeToString(layer->smartObject->fileType) << " is not a PSD/PSB)" << std::endl;
+			}
+
+			if (canOpenSmartObject)
+			{
+				Document* embeddedDocument = CreateDocument(layer->smartObject->file, allocator);
+				if (!embeddedDocument)
+				{
+					std::cout << indent << "  (Unable to open smart object document)" << std::endl;
+					continue;
+				}
+
+				LayerMaskSection* embeddedSection = ParseLayerMaskSection(embeddedDocument, layer->smartObject->file, allocator);
+				if (!embeddedSection)
+				{
+					std::cout << indent << "  (Unable to parse smart object layers)" << std::endl;
+					DestroyDocument(embeddedDocument, allocator);
+					continue;
+				}
+
+				std::cout << indent << "  Smart object layers:" << std::endl;
+				PrintLayerHierarchy(embeddedSection, allocator, indentLevel + 1u);
+
+				DestroyLayerMaskSection(embeddedSection, allocator);
+				DestroyDocument(embeddedDocument, allocator);
+			}
+		}
 	}
 
 
@@ -214,7 +341,7 @@ static std::wstring GetSampleInputPath(void)
 {
 	// TODO: add support for other platforms
 //#ifdef _WIN32
-	return L"../../bin/";
+	return L"../../../bin/";
 //#endif
 }
 
@@ -225,7 +352,7 @@ static std::wstring GetSampleOutputPath(void)
 {
 	// TODO: add support for other platforms
 //#ifdef _WIN32
-	return L"../../bin/";
+	return L"../../../bin/";
 //#endif
 }
 
@@ -656,6 +783,49 @@ int SampleReadPsd(void)
 
 // ---------------------------------------------------------------------------------------------------------------------
 // ---------------------------------------------------------------------------------------------------------------------
+int SamplePrintScriptTestLayers(void)
+{
+	const std::wstring srcPath = GetSampleInputPath() + L"old.psb";
+
+	MallocAllocator allocator;
+	NativeFile file(&allocator);
+
+	if (!file.OpenRead(srcPath.c_str()))
+	{
+		std::cerr << "Cannot open script_test.psd." << std::endl;
+		return 1;
+	}
+
+	Document* document = CreateDocument(&file, &allocator);
+	if (!document)
+	{
+		std::cerr << "Cannot create document for script_test.psd." << std::endl;
+		file.Close();
+		return 1;
+	}
+
+	LayerMaskSection* layerMaskSection = ParseLayerMaskSection(document, &file, &allocator);
+	if (!layerMaskSection)
+	{
+		std::cerr << "Cannot parse LayerMaskSection for script_test.psd." << std::endl;
+		DestroyDocument(document, &allocator);
+		file.Close();
+		return 1;
+	}
+
+	std::cout << "Layers in script_test.psd:" << std::endl;
+	PrintLayerHierarchy(layerMaskSection, &allocator);
+
+	DestroyLayerMaskSection(layerMaskSection, &allocator);
+	DestroyDocument(document, &allocator);
+	file.Close();
+
+	return 0;
+}
+
+
+// ---------------------------------------------------------------------------------------------------------------------
+// ---------------------------------------------------------------------------------------------------------------------
 int SampleWritePsd(void)
 {
 	GenerateImageData();
@@ -823,23 +993,65 @@ int SampleWritePsd(void)
 #if _WIN32
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPTSTR, int)
 #else
-int main(int /*argc*/, const char * /*argv[]*/)
+int main(int /*argc*/, const char ** /*argv[]*/)
 #endif
 {
+    // {
+    //     psd::MallocAllocator allocator;
+    //     psd::NativeFile file(&allocator);
+
+    //     const std::wstring srcPath = GetSampleInputPath() + L"Cleopatras_Legacy_button.psd";
+
+    //     // Open the PSD file
+    //     if (!file.OpenRead(srcPath.c_str())) {
+    //         std::cerr << "Failed to open file." << std::endl;
+    //         return 1;
+    //     }
+
+    //     psd::Document* document = psd::CreateDocument(&file, &allocator);
+    //     if (!document) {
+    //         std::cerr << "Failed to parse PSD." << std::endl;
+    //         return 1;
+    //     }
+
+    //     psd::LayerMaskSection* layerMaskSection = psd::ParseLayerMaskSection(document, &file, &allocator);
+    //     if (!layerMaskSection) {
+    //         std::cerr << "Failed to parse LayerMaskSection.\n";
+    //         psd::DestroyDocument(document, &allocator);
+    //         return 1;
+    //     }
+
+    //     std::cout << "Layer count: " << layerMaskSection->layerCount << std::endl;
+
+
+
+    //     // Clean up
+    //     psd::DestroyDocument(document, &allocator);
+    //     file.Close();
+	// }
+
+
 	{
-		const int result = SampleReadPsd();
+		const int result = SamplePrintScriptTestLayers();
 		if (result != 0)
 		{
 			return result;
 		}
 	}
-	{
-		const int result = SampleWritePsd();
-		if (result != 0)
-		{
-			return result;
-		}
-	}
+	// {
+	// 	const int result = SampleReadPsd();
+	// 	if (result != 0)
+	// 	{
+	// 		return result;
+	// 	}
+	// }
+	// {
+	// 	const int result = SampleWritePsd();
+	// 	if (result != 0)
+	// 	{
+	// 		return result;
+	// 	}
+	// }
 
 	return 0;
 }
